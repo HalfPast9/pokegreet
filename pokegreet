@@ -571,9 +571,20 @@ def box(lines, cfg, title="", footer="", min_width=0, border=None, color="border
             + [edge(bl, br, footer)])
 
 
-def compose(sprite, p, cfg, side=True):
-    """Lay out the sprite and info panel in the configured style; side=False stacks them."""
-    join = beside if side else (lambda left, right: left + right)
+def compose(sprite, p, cfg, cols=None):
+    """Lay out the sprite and info panel in the configured style.
+
+    With `cols`, the panel sits beside the sprite, centred in the space to its right;
+    without, the panel goes below the sprite.
+    """
+    side = cols is not None
+
+    def join(left, right):
+        if not side:
+            return left + right
+        free = cols - max(map(width, left), default=0) - max(map(width, right), default=0)
+        return beside(left, right, gap=max(3, free // 2))
+
     plain = p["head"] + [p["info"], ""] + p["stats"] + [""] + p["notes"] + ([p["footer"]] if p["footer"] else [])
     style = cfg["style"]
     if style == "plain":
@@ -601,9 +612,9 @@ def compose(sprite, p, cfg, side=True):
 
 def render(sprite, parts, cfg):
     cols = shutil.get_terminal_size((80, 24)).columns
-    out = compose(sprite, parts, cfg)
+    out = compose(sprite, parts, cfg, cols)
     if max(map(width, out)) > cols:  # too narrow for side by side
-        out = compose(sprite, parts, cfg, side=False)
+        out = compose(sprite, parts, cfg)
     print("\n".join(out))
 
 
