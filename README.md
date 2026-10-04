@@ -2,19 +2,10 @@
 
 A wild Pokémon appears every time you open a terminal, and you're catching 'em all whether you like it or not.
 
-<!-- ![pokegreet in a terminal](assets/screenshot.png) -->
-
-```
-                         ╭─ #479 · Sinnoh · Gen IV ──────────╮
-       (the sprite,      │ A wild Rotom (Wash) appeared!     │
-        in full colour)  │                                   │
-                         │ Pokédex   ▰▰▰▱▱▱▱▱▱▱ 242/905      │
-                         │ Shiny dex ▰▱▱▱▱▱▱▱▱▱   3/905      │
-                         │ Forms     ▰▰▱▱▱▱▱▱▱▱   1/6        │
-                         │                                   │
-                         │ NEW form! Wash registered.        │
-                         ╰─ 🍂 Autumn leaves are falling. ───╯
-```
+<p align="center">
+  <img src="assets/screenshot1.png" alt="A wild Braixen appears, with Pokédex progress in a rounded panel" width="49%">
+  <img src="assets/screenshot2.png" alt="A wild Manectric appears, with form collection progress" width="49%">
+</p>
 
 Built on the sprites from [pokemon-colorscripts](https://gitlab.com/phoneybadger/pokemon-colorscripts). It adds:
 
