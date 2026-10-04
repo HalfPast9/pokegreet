@@ -5,15 +5,15 @@ A wild Pokémon appears every time you open a terminal, and you're catching 'em 
 <!-- ![pokegreet in a terminal](assets/screenshot.png) -->
 
 ```
-A wild Rotom (Wash) appeared!            ← next to the sprite, in colour
-#479 · Sinnoh · Gen IV
-
-Pokédex   ▰▰▰▱▱▱▱▱▱▱ 242/905
-Shiny dex ▰▱▱▱▱▱▱▱▱▱ 3/905
-Forms     ▰▰▱▱▱▱▱▱▱▱ 1/6 Rotom forms
-
-NEW form! Wash registered.
-🍂 Autumn leaves are falling.
+                         ╭─ #479 · Sinnoh · Gen IV ──────────╮
+       (the sprite,      │ A wild Rotom (Wash) appeared!     │
+        in full colour)  │                                   │
+                         │ Pokédex   ▰▰▰▱▱▱▱▱▱▱ 242/905      │
+                         │ Shiny dex ▰▱▱▱▱▱▱▱▱▱   3/905      │
+                         │ Forms     ▰▰▱▱▱▱▱▱▱▱   1/6        │
+                         │                                   │
+                         │ NEW form! Wash registered.        │
+                         ╰─ 🍂 Autumn leaves are falling. ───╯
 ```
 
 Built on the sprites from [pokemon-colorscripts](https://gitlab.com/phoneybadger/pokemon-colorscripts). It adds:
@@ -67,6 +67,7 @@ pokegreet                 random encounter (this is what runs on startup)
 pokegreet --dex           Pokédex, shiny dex, regional progress and form collections
 pokegreet --dex rotom     form-by-form progress for one species
 pokegreet --at 2026-10-31T23:00   preview what an encounter looks like then (not saved)
+pokegreet --styles        the same encounter in every display style
 pokegreet --check         check the theme pools against your installed sprites
 ```
 
@@ -118,10 +119,27 @@ hemisphere = "south"               # flip the seasons
 exam_windows = [["12-08", "12-22"], ["04-10", "04-27"]]
 disabled = ["canada-day"]          # any event/theme id
 shiny_odds = 64
+style = "stacked"                  # see below
+border = "heavy"
 
 [colors]                           # defaults follow your terminal's palette
 accent = "#bccf77"
 ```
+
+### Styles
+
+Run `pokegreet --styles` to see them all with a real sprite.
+
+| `style` | Looks like |
+|---|---|
+| `panel` (default) | A rounded box beside the sprite, with the dex number and season/event set into its border |
+| `plain` | No border, just text |
+| `stacked` | lazygit-style **Encounter** / **Progress** / **Log** boxes |
+| `card` | One box around the sprite and the info |
+| `dialog` | A Pokémon-game text box under the sprite, with progress in a box beside it |
+| `rail` | A coloured bar beside the title, no box |
+
+`border` can be `round`, `square`, `double` or `heavy`. On narrow terminals the info drops below the sprite.
 
 Your save file lives at `~/.local/share/pokegreet/dex.json` (it respects `XDG_DATA_HOME`/`XDG_CONFIG_HOME`). If pokegreet can't find your pokemon-colorscripts install, point `POKEGREET_COLORSCRIPTS_DIR` at the folder that contains `pokemon.json`.
 

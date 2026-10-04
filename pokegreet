@@ -6,6 +6,7 @@ usage:
   pokegreet --dex           Pokédex, shiny dex and form collection progress
   pokegreet --dex NAME      form-by-form progress for one species
   pokegreet --at DATETIME   preview an encounter at e.g. 2026-10-31T23:00 (not saved)
+  pokegreet --styles        the same encounter in every display style
   pokegreet --check         validate the theme pools against your sprite data
   pokegreet --version
 
@@ -21,6 +22,7 @@ import random
 import re
 import shutil
 import sys
+import unicodedata
 
 VERSION = "1.0.0"
 REPO = "https://github.com/HalfPast9/pokegreet"
@@ -42,9 +44,12 @@ DEFAULTS = {
     "season_odds": 8,         # winter / spring / summer / autumn
     "exam_windows": [],       # e.g. [["12-08", "12-22"], ["04-10", "04-27"]]
     "disabled": [],           # ids of events/themes to turn off, e.g. ["canada-day", "night-owls"]
+    "style": "panel",         # panel, plain, stacked, card, dialog, rail
+    "border": "round",        # round, square, double, heavy
     "colors": {
         # ANSI colour names / 0-255 indices follow your terminal theme; "#rrggbb" for exact colours
         "accent": "green", "gold": "yellow", "dim": "bright-black", "new": "red", "text": "default",
+        "border": "bright-black",
     },
 }
 
@@ -206,6 +211,8 @@ SPECIAL_NAMES = {
 SPECIAL_FORMS = {"gmax": "Gigantamax", "alola": "Alolan", "galar": "Galarian", "hisui": "Hisuian"}
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+STYLES = ("panel", "plain", "stacked", "card", "dialog", "rail")
+BORDERS = {"round": "╭╮╰╯─│", "square": "┌┐└┘─│", "double": "╔╗╚╝═║", "heavy": "┏┓┗┛━┃"}
 COLOR_NAMES = {"black": 0, "red": 1, "green": 2, "yellow": 3, "blue": 4, "magenta": 5, "cyan": 6,
                "white": 7, "bright-black": 8, "gray": 8, "grey": 8, "bright-red": 9,
                "bright-green": 10, "bright-yellow": 11, "bright-blue": 12, "bright-magenta": 13,
@@ -253,6 +260,10 @@ def load_config():
     cfg["exam_windows"] = [(parse_mmdd(a, "exam window"), parse_mmdd(b, "exam window"))
                            for a, b in cfg["exam_windows"]]
     cfg["colors"] = {k: sgr(v) for k, v in cfg["colors"].items()}
+    if cfg["style"] not in STYLES:
+        die(f"unknown style {cfg['style']!r} in {CONFIG_FILE} (available: {', '.join(STYLES)})")
+    if cfg["border"] not in BORDERS:
+        die(f"unknown border {cfg['border']!r} in {CONFIG_FILE} (available: {', '.join(BORDERS)})")
     return cfg
 
 
@@ -438,7 +449,8 @@ def read_sprite(name, form, shiny):
     return sprite
 
 
-def encounter(cfg, t, save=True):
+def build_encounter(cfg, t, save=True):
+    """Roll and record an encounter; returns (sprite, panel parts)."""
     species = load_species()
     enc = pick(species, t, cfg)
     idx, form, shiny = enc["idx"], enc["form"], enc["shiny"]
@@ -478,58 +490,120 @@ def encounter(cfg, t, save=True):
     total = len(species)
 
     if shiny:
-        panel = [c("gold", f"✨ A wild shiny {shown_title} appeared! ✨", bold=True)]
+        head = [c("gold", f"✨ A wild shiny {shown_title} appeared! ✨", bold=True)]
     else:
-        panel = [c("text", "A wild ", bold=True) + c("accent", shown_title, bold=True) + c("text", " appeared!", bold=True)]
+        head = [c("text", "A wild ", bold=True) + c("accent", shown_title, bold=True) + c("text", " appeared!", bold=True)]
     if enc["disguise"] is not None:
-        panel.append(c("text", "…wait, it's actually ") + c("accent", title, bold=True) + c("text", "! 🎭"))
-    panel.append(c("dim", f"#{dex_no:03d} · {region} · Gen {roman}"))
-    panel.append("")
-    panel.append(c("dim", "Pokédex   ") + c("accent", bar(r["seen_total"], total)) + c("dim", f" {r['seen_total']}/{total}"))
-    panel.append(c("dim", "Shiny dex ") + c("gold", bar(r["shiny_total"], total)) + c("dim", f" {r['shiny_total']}/{total}"))
+        head.append(c("text", "…wait, it's actually ") + c("accent", title, bold=True) + c("text", "! 🎭"))
+    stats = [c("dim", "Pokédex   ") + c("accent", bar(r["seen_total"], total)) + c("dim", f" {r['seen_total']}/{total}"),
+             c("dim", "Shiny dex ") + c("gold", bar(r["shiny_total"], total)) + c("dim", f" {r['shiny_total']}/{total}")]
     if len(forms) > 1:
-        panel.append(c("dim", "Forms     ") + c("accent", bar(r["forms_seen"], len(forms)))
+        stats.append(c("dim", "Forms     ") + c("accent", bar(r["forms_seen"], len(forms)))
                      + c("dim", f" {r['forms_seen']}/{len(forms)} {pretty_name(name)} forms"))
-    panel.append("")
+    notes = []
     if r["new_shiny"]:
-        panel.append(c("gold", "★ NEW shiny registered!", bold=True))
+        notes.append(c("gold", "★ NEW shiny registered!", bold=True))
     if r["new_species"]:
-        panel.append(c("new", "NEW!", bold=True) + c("text", " Registered to your Pokédex."))
+        notes.append(c("new", "NEW!", bold=True) + c("text", " Registered to your Pokédex."))
     elif r["new_form"]:
-        panel.append(c("new", "NEW form!", bold=True) + c("text", f" {pretty_form(form)} registered."))
+        notes.append(c("new", "NEW form!", bold=True) + c("text", f" {pretty_form(form)} registered."))
     elif not r["new_shiny"]:
-        panel.append(c("dim", f"Seen {r['count']} times."))
-    if enc["footer"]:
-        panel.append(c("dim", enc["footer"]))
+        notes.append(c("dim", f"Seen {r['count']} times."))
     if enc["birthday"]:
         who = f", {cfg['name']}" if cfg["name"] else ""
-        panel.append(c("gold", f"🎂 Happy birthday{who}! A shiny, just for you.", bold=True))
+        notes.append(c("gold", f"🎂 Happy birthday{who}! A shiny, just for you.", bold=True))
     if not save:
-        panel.append(c("dim", f"(preview of {t:%Y-%m-%d %H:%M}, not saved)"))
+        notes.append(c("dim", f"(preview of {t:%Y-%m-%d %H:%M}, not saved)"))
 
-    render(sprite, panel)
+    parts = {"head": head, "info": c("dim", f"#{dex_no:03d} · {region} · Gen {roman}"), "stats": stats,
+             "notes": notes, "footer": c("dim", enc["footer"]) if enc["footer"] else ""}
+    return sprite, parts
 
 
-def render(sprite, panel):
-    sprite_w = max(len(ANSI_RE.sub("", l)) for l in sprite)
-    panel_w = max(len(ANSI_RE.sub("", l)) for l in panel) + 2  # emoji are double width
-    cols = shutil.get_terminal_size((80, 24)).columns
-    gap = 3
-    if sprite_w + gap + panel_w > cols:
-        print("\n".join(sprite))
-        print("\n".join(panel))
-        return
-    height = max(len(sprite), len(panel))
-    top = (len(sprite) - len(panel)) // 2 if len(sprite) > len(panel) else 0
-    sprite_top = (len(panel) - len(sprite)) // 2 if len(panel) > len(sprite) else 0
+def show_styles(cfg, t):
+    """The same (unsaved) encounter in every style, to help pick one for the config."""
+    sprite, parts = build_encounter(cfg, t, save=False)
+    parts["notes"] = parts["notes"][:-1]  # drop the "preview, not saved" line
+    for style in STYLES:
+        print()
+        print(c("gold", f' style = "{style}"', bold=True) + c("dim", "  (default)" if style == DEFAULTS["style"] else ""))
+        print()
+        render(sprite, parts, {**cfg, "style": style})
+    print()
+    print(c("dim", f" Set one in {CONFIG_FILE}, along with border = round | square | double | heavy"))
+
+
+def width(s):
+    """Display width: ANSI codes take no space, emoji take two cells."""
+    return sum(0 if ch == "\ufe0f" else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+               for ch in ANSI_RE.sub("", s))
+
+
+def pad(s, n):
+    return s + " " * (n - width(s))
+
+
+def beside(left, right, gap=3):
+    """Two blocks side by side, both vertically centred."""
+    left_w = max(map(width, left), default=0)
+    height = max(len(left), len(right))
+    lt, rt = (height - len(left)) // 2, (height - len(right)) // 2
     out = []
     for i in range(height):
-        si = i - sprite_top
-        s = sprite[si] if 0 <= si < len(sprite) else ""
-        pad = sprite_w - len(ANSI_RE.sub("", s))
-        pi = i - top
-        p = panel[pi] if 0 <= pi < len(panel) else ""
-        out.append(s + " " * (pad + gap) + p)
+        l = left[i - lt] if 0 <= i - lt < len(left) else ""
+        r = right[i - rt] if 0 <= i - rt < len(right) else ""
+        out.append((pad(l, left_w) + " " * gap + r).rstrip(" "))
+    return out
+
+
+def box(lines, cfg, title="", footer="", min_width=0, border=None, color="border"):
+    """Frame lines in a border, with optional labels set into the top and bottom edges."""
+    tl, tr, bl, br, hz, vt = BORDERS[border or cfg["border"]]
+    inner = max([width(l) for l in lines] + [width(title) + 4, width(footer) + 4, min_width])
+
+    def edge(left, right, label):
+        if not label:
+            return c(color, left + hz * (inner + 2) + right)
+        return c(color, left + hz + " ") + label + c(color, " " + hz * (inner - width(label) - 1) + right)
+
+    return ([edge(tl, tr, title)]
+            + [c(color, vt) + " " + pad(l, inner) + " " + c(color, vt) for l in lines]
+            + [edge(bl, br, footer)])
+
+
+def compose(sprite, p, cfg, side=True):
+    """Lay out the sprite and info panel in the configured style; side=False stacks them."""
+    join = beside if side else (lambda left, right: left + right)
+    plain = p["head"] + [p["info"], ""] + p["stats"] + [""] + p["notes"] + ([p["footer"]] if p["footer"] else [])
+    style = cfg["style"]
+    if style == "plain":
+        return join(sprite, plain)
+    if style == "stacked":
+        sections = [("Encounter", p["head"] + [p["info"]]), ("Progress", p["stats"]),
+                    ("Log", p["notes"] + ([p["footer"]] if p["footer"] else []))]
+        inner = max(width(l) for _, ls in sections for l in ls)
+        panels = [line for name, ls in sections
+                  for line in box(ls, cfg, title=c("accent", name, bold=True), min_width=inner)]
+        return join(sprite, panels)
+    if style == "card":
+        body = beside(sprite, plain, gap=2) if side else sprite + [""] + plain
+        return box(body, cfg, title=c("accent", "Wild encounter", bold=True))
+    if style == "dialog":
+        stats = box(p["stats"] + [""] + p["notes"] + ([p["footer"]] if p["footer"] else []), cfg)
+        return join(sprite, stats) + box(p["head"] + [p["info"]], cfg, border="double", color="text")
+    if style == "rail":
+        rail = c("accent", "▌") + " "
+        return join(sprite, [rail + l for l in p["head"] + [p["info"]]] + [""]
+                    + ["  " + l if l else "" for l in plain[len(p["head"]) + 2:]])
+    # panel (default)
+    return join(sprite, box(p["head"] + [""] + p["stats"] + [""] + p["notes"], cfg, title=p["info"], footer=p["footer"]))
+
+
+def render(sprite, parts, cfg):
+    cols = shutil.get_terminal_size((80, 24)).columns
+    out = compose(sprite, parts, cfg)
+    if max(map(width, out)) > cols:  # too narrow for side by side
+        out = compose(sprite, parts, cfg, side=False)
     print("\n".join(out))
 
 
@@ -650,11 +724,13 @@ def main():
             t = datetime.datetime.fromisoformat(args[1])
         except ValueError:
             die(f"bad date/time {args[1]!r}, expected e.g. 2026-10-31T23:00")
-        encounter(cfg, t, save=False)
+        render(*build_encounter(cfg, t, save=False), cfg)
+    elif args and args[0] == "--styles":
+        show_styles(cfg, datetime.datetime.now())
     elif args:
         die(f"unknown option {args[0]!r} (try --help)")
     else:
-        encounter(cfg, datetime.datetime.now())
+        render(*build_encounter(cfg, datetime.datetime.now()), cfg)
 
 
 if __name__ == "__main__":

@@ -28,6 +28,16 @@
 #   seasons: winter spring summer autumn
 # disabled = ["canada-day", "night-owls"]
 
+# How the info panel looks (run `pokegreet --styles` to see them all):
+#   panel   - rounded box with the dex number and season/event in its border (default)
+#   plain   - no border
+#   stacked - lazygit-style Encounter / Progress / Log boxes
+#   card    - one box around the sprite and the info
+#   dialog  - Pokémon-game text box under the sprite
+#   rail    - a coloured bar beside the title, no box
+# style = "panel"
+# border = "round"        # round, square, double, heavy
+
 # Colours: ANSI names ("green", "bright-black", ...) and 0-255 indices follow your
 # terminal theme; "#rrggbb" picks an exact colour. "default" is your normal text colour.
 # [colors]
@@ -36,3 +46,4 @@
 # dim = "bright-black"    # secondary text
 # new = "red"             # NEW! tags
 # text = "default"
+# border = "bright-black" # box borders
