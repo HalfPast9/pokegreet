@@ -68,7 +68,7 @@ Most of the time, any of the 905 Pokémon can appear. A theme takes over some en
 
 **Seasons** (1 in 8, by real-world season, and the hemisphere is configurable)
 
-| | Who shows up |
+| Season | Who shows up |
 |---|---|
 | Winter | Ice types, penguins, Snorlax hibernating, Alolan and Galarian ice forms, Cyndaquil by the fire |
 | Spring | Flowers, butterflies, bees, rain frogs, Easter bunnies and eggs |
@@ -77,7 +77,7 @@ Most of the time, any of the 905 Pokémon can appear. A theme takes over some en
 
 **Themes** (1 in 6 while active)
 
-| | When | Who shows up |
+| Theme | When | Who shows up |
 |---|---|---|
 | Spooky season | October | Ghost types |
 | Night owls | 10pm–5am | Dark types, owls, bats, the moon crew |
@@ -86,7 +86,7 @@ Most of the time, any of the 905 Pokémon can appear. A theme takes over some en
 
 **One-day events** (1 in 2 on the day)
 
-| | Date | |
+| Event | Date | Who shows up |
 |---|---|---|
 | New Year | Dec 31, Jan 1 | Jirachi and lucky Pokémon |
 | Valentine's | Feb 14 | Luvdisc, Alomomola, Woobat, love-topped Alcremie |
