@@ -1,0 +1,661 @@
+#!/usr/bin/env python3
+"""pokegreet: a wild Pokémon encounter every time you open a terminal.
+
+usage:
+  pokegreet                 random encounter (put this in your shell rc)
+  pokegreet --dex           Pokédex, shiny dex and form collection progress
+  pokegreet --dex NAME      form-by-form progress for one species
+  pokegreet --at DATETIME   preview an encounter at e.g. 2026-10-31T23:00 (not saved)
+  pokegreet --check         validate the theme pools against your sprite data
+  pokegreet --version
+
+config:  $XDG_CONFIG_HOME/pokegreet/config.toml   (see config.example.toml)
+save:    $XDG_DATA_HOME/pokegreet/dex.json
+"""
+import datetime
+import fcntl
+import fnmatch
+import json
+import os
+import random
+import re
+import shutil
+import sys
+
+VERSION = "1.0.0"
+REPO = "https://github.com/HalfPast9/pokegreet"
+COLORSCRIPTS_URL = "https://gitlab.com/phoneybadger/pokemon-colorscripts"
+
+XDG_CONFIG = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
+XDG_DATA = os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share")
+CONFIG_FILE = os.path.join(XDG_CONFIG, "pokegreet", "config.toml")
+DEX_FILE = os.path.join(XDG_DATA, "pokegreet", "dex.json")
+
+DEFAULTS = {
+    "name": "",               # used in the birthday message
+    "birthday": "",           # "MM-DD": every encounter that day is shiny
+    "hemisphere": "north",    # "south" flips the seasons
+    "shiny_odds": 128,        # 1 in N encounters is shiny
+    "alt_form_odds": 10,      # 1 in N encounters uses an alternate form (if the species has one)
+    "event_odds": 2,          # one-day events take over 1 in N encounters (Halloween is always on)
+    "theme_odds": 6,          # spooky season, exam season, night owls, early birds
+    "season_odds": 8,         # winter / spring / summer / autumn
+    "exam_windows": [],       # e.g. [["12-08", "12-22"], ["04-10", "04-27"]]
+    "disabled": [],           # ids of events/themes to turn off, e.g. ["canada-day", "night-owls"]
+    "colors": {
+        # ANSI colour names / 0-255 indices follow your terminal theme; "#rrggbb" for exact colours
+        "accent": "green", "gold": "yellow", "dim": "bright-black", "new": "red", "text": "default",
+    },
+}
+
+GENS = [  # (last dex number, region, roman numeral)
+    (151, "Kanto", "I"), (251, "Johto", "II"), (386, "Hoenn", "III"),
+    (493, "Sinnoh", "IV"), (649, "Unova", "V"), (721, "Kalos", "VI"),
+    (809, "Alola", "VII"), (898, "Galar", "VIII"), (905, "Hisui", "VIII"),
+]
+
+# ---------- theme pools ----------
+# Entries are "name" (form rolled normally) or "name:glob" (random form matching the glob).
+
+GHOSTS = """gastly haunter gengar misdreavus mismagius shedinja sableye shuppet banette
+duskull dusclops dusknoir drifloon drifblim spiritomb rotom froslass giratina yamask
+cofagrigus frillish jellicent litwick lampent chandelure golett golurk honedge doublade
+aegislash phantump trevenant pumpkaboo gourgeist hoopa decidueye sandygast palossand
+mimikyu dhelmise lunala marshadow blacephalon sinistea polteageist runerigus cursola
+dreepy drakloak dragapult spectrier basculegion""".split()
+
+STARTERS = """bulbasaur charmander squirtle chikorita cyndaquil totodile treecko torchic mudkip
+turtwig chimchar piplup snivy tepig oshawott chespin fennekin froakie rowlet litten popplio
+grookey scorbunny sobble""".split()
+
+NIGHT_OWLS = """hoothoot noctowl umbreon murkrow honchkrow sneasel weavile houndour houndoom absol
+darkrai zorua zoroark poochyena mightyena purrloin liepard noibat noivern zubat golbat crobat
+lunatone lunala cresselia munna musharna clefairy clefable gastly haunter gengar misdreavus
+sableye spiritomb lycanroc""".split()
+
+EARLY_BIRDS = """pidgey pidgeotto pidgeot espeon spearow fearow taillow swellow starly staravia
+staraptor pidove fletchling pikipek ledyba sunkern sunflora solrock solgaleo helioptile
+heliolisk cherrim chatot lycanroc""".split()
+
+STUDY_GROUP = """abra kadabra alakazam slowking porygon porygon2 porygon-z magnemite magneton
+magnezone voltorb electrode rotom:* unown:* natu xatu elgyem beheeyem solosis duosion reuniclus
+klink klang klinklang oranguru grubbin charjabug vikavolt dottler orbeetle sigilyph genesect
+noctowl pikachu:phd""".split()
+
+WINTER = """jynx smoochum lapras articuno seel dewgong shellder cloyster sneasel weavile swinub
+piloswine mamoswine delibird snorunt glalie froslass spheal sealeo walrein regice snover
+abomasnow glaceon vanillite vanillish vanilluxe cubchoo beartic cryogonal kyurem bergmite
+avalugg amaura aurorus snom frosmoth eiscue arctozolt arctovish glastrier stantler deerling
+sawsbuck castform mr-rime vulpix:alola ninetales:alola sandshrew:alola sandslash:alola
+darumaka:galar darmanitan:galar* mr-mime:galar calyrex:ice-rider avalugg:hisui* piplup
+prinplup empoleon snorlax munchlax chingling chimecho wyrdeer regigigas rotom:frost
+articuno:galar kyurem:* absol swablu altaria cyndaquil quilava typhlosion zorua:hisui
+zoroark:hisui""".split()
+
+SPRING = """oddish gloom vileplume bellossom hoppip skiploom jumpluff budew roselia roserade cherubi
+cherrim combee vespiquen flabebe:* floette:* florges:* comfey cottonee whimsicott petilil
+lilligant deerling sawsbuck castform shaymin butterfree beautifly vivillon:* cutiefly
+ribombee lotad lombre ludicolo politoed sewaddle swadloon leavanny skiddo gogoat gossifleur
+eldegoss chikorita bayleef meganium bulbasaur ivysaur venusaur bellsprout weepinbell
+victreebel exeggcute tangela tangrowth buneary lopunny bunnelby diggersby scorbunny togepi
+togetic togekiss happiny chansey blissey caterpie metapod weedle kakuna beedrill wurmple
+silcoon cascoon dustox scatterbug spewpa ledyba ledian fomantis lurantis wooper quagsire
+poliwag poliwhirl poliwrath tympole palpitoad seismitoad goomy sliggoo goodra minccino
+cinccino snivy servine serperior spritzee aromatisse alcremie:*-flower celebi""".split()
+
+SUMMER = """horsea seadra kingdra staryu starmie krabby kingler psyduck golduck tentacool tentacruel
+wingull pelipper corphish wailmer wailord mantyke mantine buizel floatzel sandygast
+palossand pyukumuku wishiwashi mareanie toxapex popplio brionne primarina bruxish oricorio:*
+exeggutor:alola raichu:alola marill azumarill chinchou lanturn corsola sunkern sunflora
+castform torkoal numel camerupt solrock tropius cramorant arrokuda barraskewda chewtle
+drednaw slowpoke slowbro goldeen seaking magikarp gyarados remoraid octillery qwilfish
+clauncher clawitzer binacle barbaracle skrelp dragalge frillish jellicent finneon lumineon
+carvanha sharpedo relicanth clamperl huntail gorebyss lugia kyogre groudon larvesta
+volcarona squirtle wartortle blastoise vulpix ninetales litleo pyroar sandile krokorok
+krookodile cacnea cacturne maractus trapinch vibrava flygon helioptile heliolisk illumise
+volbeat kricketot kricketune nincada ninjask yanma yanmega surskit masquerain pikipek
+trumbeak toucannon bounsweet steenee tsareena""".split()
+
+AUTUMN = """deerling sawsbuck phantump trevenant pumpkaboo:* gourgeist seedot nuzleaf shiftry leafeon
+burmy:* wormadam:* teddiursa ursaring ursaluna skwovet greedent zigzagoon linoone foongus
+amoonguss paras parasect shroomish breloom morelull shiinotic pansage simisage applin
+flapple appletun farfetchd miltank murkrow honchkrow rookidee corvisquire corviknight
+stantler sudowoodo bonsly snorlax munchlax bidoof bibarel pachirisu sentret furret mudbray
+mudsdale tauros wooloo dubwool mareep flaaffy ampharos farfetchd:galar sirfetchd sinistea
+polteageist litwick lampent chandelure drifloon drifblim rowlet dartrix decidueye spinarak
+ariados chespin quilladin chesnaught fletchling fletchinder talonflame fennekin braixen
+delphox nickit thievul""".split()
+
+# ---------- events & themes ----------
+# Each one has an id (usable in `disabled`), a footer, a pool and an odds key from the config.
+# A theme takes over 1 in `odds` encounters while it's active; the rest stay fully random.
+
+EVENTS = [  # one-day events, checked first
+    {"id": "new-year", "dates": [(12, 31), (1, 1)], "footer": "🎆 Happy New Year! Make a wish.",
+     "pool": "jirachi togepi togetic togekiss clefairy".split()},
+    {"id": "valentines", "dates": [(2, 14)], "footer": "💝 Happy Valentine's Day!",
+     "pool": "luvdisc alomomola woobat swoobat enamorus alcremie:*-love".split()},
+    {"id": "pokemon-day", "dates": [(2, 27)], "footer": "🎉 Happy Pokémon Day!",
+     "pool": ["pikachu:*", "eevee"] + STARTERS},
+    {"id": "st-patricks", "dates": [(3, 17)], "footer": "🍀 Happy St. Patrick's Day!",
+     "pool": """bulbasaur ivysaur venusaur chikorita bayleef meganium treecko grovyle sceptile
+     turtwig snivy servine serperior chespin quilladin rowlet dartrix grookey thwackey celebi
+     shaymin leafeon tropius alcremie:*-clover""".split()},
+    {"id": "april-fools", "dates": [(4, 1)], "footer": None, "disguise": True,
+     "pool": "ditto zorua zoroark".split()},
+    {"id": "canada-day", "dates": [(7, 1)], "footer": "🍁 Happy Canada Day!",
+     "pool": """voltorb electrode delibird latias zangoose spinda goldeen seaking foongus
+     amoonguss shroomish gardevoir""".split()},
+    {"id": "halloween", "dates": [(10, 31)], "footer": "🎃 Happy Halloween!", "always": True,
+     "pool": GHOSTS + ["pumpkaboo:*"] * 5},
+    {"id": "christmas", "dates": [(12, 24), (12, 25)], "footer": "🎄 Merry Christmas!",
+     "pool": "delibird stantler snover abomasnow cubchoo beartic deerling sawsbuck".split()},
+]
+
+THEMES = [  # recurring; every active one gets its own roll, in random order
+    {"id": "spooky-season", "active": lambda t, cfg: t.month == 10,
+     "footer": "🎃 Spooky season: Ghost-types are out in force.", "pool": GHOSTS},
+    {"id": "exam-season", "active": lambda t, cfg: in_windows(t, cfg["exam_windows"]),
+     "footer": "📚 Exam season: the study group is in session.", "pool": STUDY_GROUP},
+    {"id": "night-owls", "active": lambda t, cfg: t.hour >= 22 or t.hour < 5,
+     "footer": "🌙 The night owls are out.", "pool": NIGHT_OWLS},
+    {"id": "early-birds", "active": lambda t, cfg: 5 <= t.hour < 9,
+     "footer": "🌅 The early birds are up.", "pool": EARLY_BIRDS},
+]
+
+SEASONS = {
+    "winter": {"id": "winter", "footer": "⛄ Winter is here: icy Pokémon are out.", "pool": WINTER},
+    "spring": {"id": "spring", "footer": "🌸 Spring is in bloom.", "pool": SPRING},
+    "summer": {"id": "summer", "footer": "🌊 Summer's here: beach season.", "pool": SUMMER},
+    "autumn": {"id": "autumn", "footer": "🍂 Autumn leaves are falling.", "pool": AUTUMN},
+}
+
+
+def real_season(t, cfg):
+    """Meteorological seasons: Dec-Feb is winter in the north, summer in the south."""
+    month = t.month if cfg["hemisphere"] != "south" else (t.month + 5) % 12 + 1
+    return {12: "winter", 1: "winter", 2: "winter", 3: "spring", 4: "spring", 5: "spring",
+            6: "summer", 7: "summer", 8: "summer"}.get(month, "autumn")
+
+
+def lycanroc_form(h):
+    return "regular" if 6 <= h < 17 else "dusk" if h < 19 else "midnight"
+
+
+def necrozma_form(h):
+    return "dawn" if 5 <= h < 8 else "ultra" if h == 12 else "dusk" if 17 <= h < 20 else "regular"
+
+
+# Species whose form always follows the real season / time of day.
+FORM_RULES = {
+    "deerling": lambda t, cfg: {"spring": "regular"}.get(real_season(t, cfg), real_season(t, cfg)),
+    "sawsbuck": lambda t, cfg: {"spring": "regular"}.get(real_season(t, cfg), real_season(t, cfg)),
+    "castform": lambda t, cfg: {"winter": "snowy", "spring": "rainy", "summer": "sunny"}.get(real_season(t, cfg), "regular"),
+    "cherrim":  lambda t, cfg: "sunshine" if 7 <= t.hour < 19 else "regular",
+    "lycanroc": lambda t, cfg: lycanroc_form(t.hour),
+    "necrozma": lambda t, cfg: necrozma_form(t.hour),
+}
+
+SPECIAL_NAMES = {
+    "mr-mime": "Mr. Mime", "mr-rime": "Mr. Rime", "mime-jr": "Mime Jr.",
+    "nidoran-f": "Nidoran♀", "nidoran-m": "Nidoran♂", "farfetchd": "Farfetch'd",
+    "sirfetchd": "Sirfetch'd", "ho-oh": "Ho-Oh", "porygon-z": "Porygon-Z",
+    "type-null": "Type: Null", "jangmo-o": "Jangmo-o", "hakamo-o": "Hakamo-o",
+    "kommo-o": "Kommo-o", "flabebe": "Flabébé",
+}
+SPECIAL_FORMS = {"gmax": "Gigantamax", "alola": "Alolan", "galar": "Galarian", "hisui": "Hisuian"}
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+COLOR_NAMES = {"black": 0, "red": 1, "green": 2, "yellow": 3, "blue": 4, "magenta": 5, "cyan": 6,
+               "white": 7, "bright-black": 8, "gray": 8, "grey": 8, "bright-red": 9,
+               "bright-green": 10, "bright-yellow": 11, "bright-blue": 12, "bright-magenta": 13,
+               "bright-cyan": 14, "bright-white": 15}
+
+
+# ---------- config & data ----------
+
+def die(msg):
+    sys.exit(f"pokegreet: {msg}")
+
+
+def parse_mmdd(s, what):
+    try:
+        month, day = (int(x) for x in str(s).split("-"))
+        datetime.date(2000, month, day)  # validates (2000 is a leap year, so 02-29 is allowed)
+        return month, day
+    except ValueError:
+        die(f"bad {what} {s!r} in {CONFIG_FILE}, expected \"MM-DD\"")
+
+
+def load_config():
+    cfg = {**DEFAULTS, "colors": dict(DEFAULTS["colors"])}
+    if os.path.exists(CONFIG_FILE):
+        try:
+            import tomllib
+        except ImportError:
+            die(f"reading {CONFIG_FILE} needs Python 3.11+ (or remove the file to use defaults)")
+        try:
+            with open(CONFIG_FILE, "rb") as f:
+                user = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            die(f"couldn't parse {CONFIG_FILE}: {e}")
+        unknown = set(user) - set(DEFAULTS)
+        if unknown:
+            die(f"unknown setting(s) in {CONFIG_FILE}: {', '.join(sorted(unknown))}")
+        colors = user.pop("colors", {})
+        unknown = set(colors) - set(DEFAULTS["colors"])
+        if unknown:
+            die(f"unknown colour(s) in {CONFIG_FILE}: {', '.join(sorted(unknown))} "
+                f"(available: {', '.join(DEFAULTS['colors'])})")
+        cfg["colors"].update(colors)
+        cfg.update(user)
+    cfg["birthday"] = parse_mmdd(cfg["birthday"], "birthday") if cfg["birthday"] else None
+    cfg["exam_windows"] = [(parse_mmdd(a, "exam window"), parse_mmdd(b, "exam window"))
+                           for a, b in cfg["exam_windows"]]
+    cfg["colors"] = {k: sgr(v) for k, v in cfg["colors"].items()}
+    return cfg
+
+
+def sgr(color):
+    """Colour spec (name, 0-255 index or #rrggbb) -> SGR parameter string."""
+    if isinstance(color, str) and color.startswith("#") and len(color) == 7:
+        r, g, b = (int(color[i:i + 2], 16) for i in (1, 3, 5))
+        return f"38;2;{r};{g};{b}"
+    if color == "default":
+        return "39"
+    idx = COLOR_NAMES.get(color, color)
+    if isinstance(idx, int) and 0 <= idx <= 255:
+        return str(30 + idx) if idx < 8 else str(82 + idx) if idx < 16 else f"38;5;{idx}"
+    die(f"bad colour {color!r} in {CONFIG_FILE}: use a name like \"green\", 0-255, or \"#rrggbb\"")
+
+
+def find_data_dir():
+    candidates = [os.environ.get("POKEGREET_COLORSCRIPTS_DIR")]
+    exe = shutil.which("pokemon-colorscripts")
+    if exe:
+        candidates.append(os.path.dirname(os.path.realpath(exe)))
+    candidates += ["/usr/local/opt/pokemon-colorscripts", "/opt/pokemon-colorscripts",
+                   "/usr/share/pokemon-colorscripts", os.path.expanduser("~/.local/opt/pokemon-colorscripts"),
+                   os.path.expanduser("~/.local/share/pokemon-colorscripts")]
+    for d in candidates:
+        if d and os.path.exists(os.path.join(d, "pokemon.json")):
+            return d
+    die(f"couldn't find pokemon-colorscripts. Install it from {COLORSCRIPTS_URL}\n"
+        "  or point POKEGREET_COLORSCRIPTS_DIR at the folder containing pokemon.json")
+
+
+DATA_DIR = None
+
+
+def load_species():
+    global DATA_DIR
+    DATA_DIR = DATA_DIR or find_data_dir()
+    with open(os.path.join(DATA_DIR, "pokemon.json")) as f:
+        return json.load(f)
+
+
+def in_windows(t, windows):
+    return any(start <= (t.month, t.day) <= end for start, end in windows)
+
+
+# ---------- formatting ----------
+
+COLORS = {}
+
+
+def c(role, text, bold=False):
+    return f"\x1b[{'1;' if bold else ''}{COLORS[role]}m{text}\x1b[0m"
+
+
+def pretty_name(name):
+    return SPECIAL_NAMES.get(name, name.replace("-", " ").title())
+
+
+def pretty_form(form):
+    return " ".join(SPECIAL_FORMS.get(w, w.title()) for w in form.split("-"))
+
+
+def display_title(name, form):
+    title = pretty_name(name)
+    if form == "regular":
+        return title
+    if form in SPECIAL_FORMS or form.startswith("mega"):
+        return f"{pretty_form(form)} {title}"
+    return f"{title} ({pretty_form(form)})"
+
+
+def bar(n, total, width=10):
+    filled = round(width * n / total) if total else 0
+    if n and not filled:
+        filled = 1
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def gen_info(dex_no):
+    for last, region, roman in GENS:
+        if dex_no <= last:
+            return region, roman
+    return "???", "?"
+
+
+# ---------- dex storage ----------
+
+def empty_dex():
+    return {"encounters": 0, "seen": {}}
+
+
+def read_dex():
+    try:
+        with open(DEX_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return empty_dex()
+
+
+def with_dex(update, save=True):
+    """Locked read-modify-write so simultaneous terminals don't clobber each other."""
+    if not save:
+        return update(read_dex())
+    os.makedirs(os.path.dirname(DEX_FILE), exist_ok=True)
+    with open(DEX_FILE + ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        dex = read_dex()
+        result = update(dex)
+        tmp = DEX_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(dex, f, indent=1)
+        os.replace(tmp, DEX_FILE)
+    return result
+
+
+def shiny_count(dex):
+    return sum(1 for e in dex["seen"].values() if e["shiny_forms"])
+
+
+# ---------- encounter ----------
+
+def resolve(pool, species):
+    """Drop pool entries the installed sprite set doesn't have (older/newer data)."""
+    forms = {p["name"]: p["forms"] for p in species}
+    out = []
+    for entry in pool:
+        name, _, glob = entry.partition(":")
+        if name in forms and (not glob or fnmatch.filter(forms[name], glob)):
+            out.append(entry)
+    return out
+
+
+def active_theme(t, cfg, species):
+    disabled = set(cfg["disabled"])
+    for event in EVENTS:
+        if (t.month, t.day) in event["dates"] and event["id"] not in disabled:
+            if event.get("always") or random.randrange(cfg["event_odds"]) == 0:
+                return event
+            break
+    rolls = [(theme, cfg["theme_odds"]) for theme in THEMES if theme["active"](t, cfg)]
+    rolls.append((SEASONS[real_season(t, cfg)], cfg["season_odds"]))
+    random.shuffle(rolls)  # so overlapping themes share fairly
+    for theme, odds in rolls:
+        if theme["id"] not in disabled and random.randrange(odds) == 0:
+            return theme
+    return None
+
+
+def pick(species, t, cfg):
+    index = {p["name"]: i for i, p in enumerate(species)}
+    theme = active_theme(t, cfg, species)
+    pool = resolve(theme["pool"], species) if theme else []
+    form_glob = None
+    if pool:
+        name, _, form_glob = random.choice(pool).partition(":")
+        idx = index[name]
+    else:
+        theme = None
+        idx = random.randrange(len(species))
+    name, forms = species[idx]["name"], species[idx]["forms"]
+
+    if form_glob:
+        form = random.choice(fnmatch.filter(forms, form_glob))
+    elif name in FORM_RULES and FORM_RULES[name](t, cfg) in forms:
+        form = FORM_RULES[name](t, cfg)
+    else:
+        alts = [f for f in forms if f != "regular"]
+        form = random.choice(alts) if alts and random.randrange(cfg["alt_form_odds"]) == 0 else "regular"
+
+    birthday = cfg["birthday"] == (t.month, t.day)
+    shiny = birthday or random.randrange(cfg["shiny_odds"]) == 0
+    disguise = random.randrange(len(species)) if theme and theme.get("disguise") else None
+    return {"idx": idx, "form": form, "shiny": shiny, "birthday": birthday,
+            "footer": theme and theme.get("footer"), "disguise": disguise}
+
+
+def read_sprite(name, form, shiny):
+    fname = name if form == "regular" else f"{name}-{form}"
+    with open(os.path.join(DATA_DIR, "colorscripts", "small", "shiny" if shiny else "regular", fname)) as f:
+        sprite = [line + "\x1b[0m" for line in f.read().split("\n")]
+    while sprite and not ANSI_RE.sub("", sprite[-1]).strip():
+        sprite.pop()
+    return sprite
+
+
+def encounter(cfg, t, save=True):
+    species = load_species()
+    enc = pick(species, t, cfg)
+    idx, form, shiny = enc["idx"], enc["form"], enc["shiny"]
+    name, forms = species[idx]["name"], species[idx]["forms"]
+
+    def record(dex):
+        dex["encounters"] += 1
+        entry = dex["seen"].get(name)
+        new_species = entry is None
+        if new_species:
+            entry = dex["seen"][name] = {
+                "count": 0, "first": t.date().isoformat(), "forms": [], "shiny_forms": [],
+            }
+        entry["count"] += 1
+        new_form = form not in entry["forms"]
+        if new_form:
+            entry["forms"].append(form)
+        new_shiny = shiny and form not in entry["shiny_forms"]
+        if new_shiny:
+            entry["shiny_forms"].append(form)
+        return {
+            "new_species": new_species, "new_form": new_form, "new_shiny": new_shiny,
+            "count": entry["count"], "forms_seen": len(entry["forms"]),
+            "seen_total": len(dex["seen"]), "shiny_total": shiny_count(dex),
+        }
+
+    r = with_dex(record, save)
+
+    # an April Fools' disguise shows someone else's sprite and name
+    shown_name, shown_form = (species[enc["disguise"]]["name"], "regular") if enc["disguise"] is not None else (name, form)
+    sprite = read_sprite(shown_name, shown_form, shiny)
+
+    dex_no = idx + 1
+    region, roman = gen_info(dex_no)
+    title = display_title(name, form)
+    shown_title = display_title(shown_name, shown_form)
+    total = len(species)
+
+    if shiny:
+        panel = [c("gold", f"✨ A wild shiny {shown_title} appeared! ✨", bold=True)]
+    else:
+        panel = [c("text", "A wild ", bold=True) + c("accent", shown_title, bold=True) + c("text", " appeared!", bold=True)]
+    if enc["disguise"] is not None:
+        panel.append(c("text", "…wait, it's actually ") + c("accent", title, bold=True) + c("text", "! 🎭"))
+    panel.append(c("dim", f"#{dex_no:03d} · {region} · Gen {roman}"))
+    panel.append("")
+    panel.append(c("dim", "Pokédex   ") + c("accent", bar(r["seen_total"], total)) + c("dim", f" {r['seen_total']}/{total}"))
+    panel.append(c("dim", "Shiny dex ") + c("gold", bar(r["shiny_total"], total)) + c("dim", f" {r['shiny_total']}/{total}"))
+    if len(forms) > 1:
+        panel.append(c("dim", "Forms     ") + c("accent", bar(r["forms_seen"], len(forms)))
+                     + c("dim", f" {r['forms_seen']}/{len(forms)} {pretty_name(name)} forms"))
+    panel.append("")
+    if r["new_shiny"]:
+        panel.append(c("gold", "★ NEW shiny registered!", bold=True))
+    if r["new_species"]:
+        panel.append(c("new", "NEW!", bold=True) + c("text", " Registered to your Pokédex."))
+    elif r["new_form"]:
+        panel.append(c("new", "NEW form!", bold=True) + c("text", f" {pretty_form(form)} registered."))
+    elif not r["new_shiny"]:
+        panel.append(c("dim", f"Seen {r['count']} times."))
+    if enc["footer"]:
+        panel.append(c("dim", enc["footer"]))
+    if enc["birthday"]:
+        who = f", {cfg['name']}" if cfg["name"] else ""
+        panel.append(c("gold", f"🎂 Happy birthday{who}! A shiny, just for you.", bold=True))
+    if not save:
+        panel.append(c("dim", f"(preview of {t:%Y-%m-%d %H:%M}, not saved)"))
+
+    render(sprite, panel)
+
+
+def render(sprite, panel):
+    sprite_w = max(len(ANSI_RE.sub("", l)) for l in sprite)
+    panel_w = max(len(ANSI_RE.sub("", l)) for l in panel) + 2  # emoji are double width
+    cols = shutil.get_terminal_size((80, 24)).columns
+    gap = 3
+    if sprite_w + gap + panel_w > cols:
+        print("\n".join(sprite))
+        print("\n".join(panel))
+        return
+    height = max(len(sprite), len(panel))
+    top = (len(sprite) - len(panel)) // 2 if len(sprite) > len(panel) else 0
+    sprite_top = (len(panel) - len(sprite)) // 2 if len(panel) > len(sprite) else 0
+    out = []
+    for i in range(height):
+        si = i - sprite_top
+        s = sprite[si] if 0 <= si < len(sprite) else ""
+        pad = sprite_w - len(ANSI_RE.sub("", s))
+        pi = i - top
+        p = panel[pi] if 0 <= pi < len(panel) else ""
+        out.append(s + " " * (pad + gap) + p)
+    print("\n".join(out))
+
+
+# ---------- --dex ----------
+
+def show_dex(query=None):
+    species = load_species()
+    dex = read_dex()
+    seen = dex["seen"]
+
+    if query:
+        key = query.lower()
+        match = next((i for i, p in enumerate(species) if p["name"] == key), None)
+        if match is None:
+            die(f"unknown pokemon '{query}' (see pokemon-colorscripts -l)")
+        sp = species[match]
+        entry = seen.get(key)
+        print(c("accent", f"#{match + 1:03d} {pretty_name(key)}", bold=True))
+        if not entry:
+            print(c("dim", "Not seen yet."))
+            return
+        print(c("dim", f"Seen {entry['count']} times · first on {entry['first']}"))
+        print()
+        print(c("dim", f"{'form':<20} seen  shiny"))
+        for f in sp["forms"]:
+            s = c("accent", "  ●  ") if f in entry["forms"] else c("dim", "  ·  ")
+            sh = c("gold", "  ✦") if f in entry["shiny_forms"] else c("dim", "  ·")
+            print(f"{pretty_form(f):<20}{s} {sh}")
+        return
+
+    total = len(species)
+    all_forms = sum(len(p["forms"]) for p in species)
+    forms_seen = sum(len(e["forms"]) for e in seen.values())
+    shinies = shiny_count(dex)
+    print(c("accent", "Pokédex", bold=True) + c("dim", f"  ·  {dex['encounters']} encounters"))
+    print()
+    print(c("dim", "Species   ") + c("accent", bar(len(seen), total, 20)) + c("dim", f" {len(seen)}/{total}"))
+    print(c("dim", "Shiny dex ") + c("gold", bar(shinies, total, 20)) + c("dim", f" {shinies}/{total}"))
+    print(c("dim", "All forms ") + c("accent", bar(forms_seen, all_forms, 20)) + c("dim", f" {forms_seen}/{all_forms}"))
+    print()
+    start = 0
+    for last, region, roman in GENS:
+        names = [p["name"] for p in species[start:last]]
+        n = sum(1 for nm in names if nm in seen)
+        print(c("dim", f"{region:<7} ") + c("accent", bar(n, len(names), 20)) + c("dim", f" {n}/{len(names)}"))
+        start = last
+
+    shiny_list = [(i, p["name"]) for i, p in enumerate(species) if seen.get(p["name"], {}).get("shiny_forms")]
+    if shiny_list:
+        print()
+        print(c("gold", "Shinies ✦", bold=True))
+        for i, nm in shiny_list:
+            fs = seen[nm]["shiny_forms"]
+            extra = "" if fs == ["regular"] else c("dim", " (" + ", ".join(pretty_form(f) for f in fs) + ")")
+            print(f"  #{i + 1:03d} {pretty_name(nm)}{extra}")
+
+    collections = [(p["name"], len(seen[p["name"]]["forms"]), len(p["forms"]))
+                   for p in species if len(p["forms"]) > 1 and p["name"] in seen]
+    if collections:
+        complete = [nm for nm, n, t in collections if n == t]
+        in_progress = sorted((x for x in collections if x[1] < x[2]), key=lambda x: (-x[1] / x[2], -x[2], x[0]))
+        multi = sum(1 for p in species if len(p["forms"]) > 1)
+        print()
+        print(c("accent", "Form collections", bold=True) + c("dim", f"  {len(complete)}/{multi} complete · pokegreet --dex NAME"))
+        for nm, n, t in in_progress[:10]:
+            print(f"  {pretty_name(nm):<14}" + c("accent", bar(n, t)) + c("dim", f" {n}/{t}"))
+        if len(in_progress) > 10:
+            print(c("dim", f"  …and {len(in_progress) - 10} more in progress"))
+
+
+# ---------- --check ----------
+
+def check():
+    """Every pool entry and form rule must exist in the installed sprite data."""
+    species = load_species()
+    forms = {p["name"]: p["forms"] for p in species}
+    problems = []
+    groups = [(e["id"], e["pool"]) for e in EVENTS] + [(t["id"], t["pool"]) for t in THEMES] \
+        + [(s["id"], s["pool"]) for s in SEASONS.values()]
+    for gid, pool in groups:
+        bad = [e for e in pool if e not in resolve([e], species)]
+        if bad:
+            problems.append(f"{gid}: {' '.join(bad)}")
+    for name, rule in FORM_RULES.items():
+        for month in range(1, 13):
+            for hour in range(24):
+                form = rule(datetime.datetime(2026, month, 15, hour), {"hemisphere": "north"})
+                if form not in forms.get(name, []):
+                    problems.append(f"form rule {name}: no form {form!r}")
+                    break
+    ids = [e["id"] for e in EVENTS] + [t["id"] for t in THEMES] + list(SEASONS)
+    if len(ids) != len(set(ids)):
+        problems.append("duplicate event/theme ids")
+    for p in problems:
+        print(p)
+    print(f"{len(groups)} pools checked against {DATA_DIR}: " + ("OK" if not problems else f"{len(problems)} problem(s)"))
+    sys.exit(1 if problems else 0)
+
+
+def main():
+    args = sys.argv[1:]
+    if args and args[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return
+    if args and args[0] == "--version":
+        print(f"pokegreet {VERSION}  {REPO}")
+        return
+    cfg = load_config()
+    COLORS.update(cfg["colors"])
+    if args and args[0] == "--check":
+        check()
+    elif args and args[0] in ("-d", "--dex"):
+        show_dex(args[1] if len(args) > 1 else None)
+    elif args and args[0] == "--at":
+        if len(args) < 2:
+            die("--at needs a date/time, e.g. --at 2026-10-31T23:00")
+        try:
+            t = datetime.datetime.fromisoformat(args[1])
+        except ValueError:
+            die(f"bad date/time {args[1]!r}, expected e.g. 2026-10-31T23:00")
+        encounter(cfg, t, save=False)
+    elif args:
+        die(f"unknown option {args[0]!r} (try --help)")
+    else:
+        encounter(cfg, datetime.datetime.now())
+
+
+if __name__ == "__main__":
+    main()

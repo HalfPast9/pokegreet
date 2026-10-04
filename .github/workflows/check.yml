@@ -1,0 +1,33 @@
+name: check
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.9", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Fetch pokemon-colorscripts sprites
+        run: git clone --depth 1 https://gitlab.com/phoneybadger/pokemon-colorscripts.git /tmp/pcs
+      - name: Validate theme pools against the sprite data
+        env:
+          POKEGREET_COLORSCRIPTS_DIR: /tmp/pcs
+        run: ./pokegreet --check
+      - name: Smoke test
+        env:
+          POKEGREET_COLORSCRIPTS_DIR: /tmp/pcs
+          XDG_DATA_HOME: /tmp/data
+        run: |
+          ./pokegreet
+          for t in 2026-01-01T00:00 2026-02-14T08:00 2026-04-01T12:00 2026-07-01T18:00 2026-10-31T23:00 2026-12-25T06:00; do
+            ./pokegreet --at "$t" > /dev/null
+          done
+          ./pokegreet --dex
+          ./pokegreet --dex pikachu
+          sh -n install.sh

@@ -1,0 +1,38 @@
+# pokegreet config: copy to ~/.config/pokegreet/config.toml and uncomment what you want.
+# Everything is optional. Needs Python 3.11+ (for the built-in TOML parser).
+
+# Your name, for the birthday message.
+# name = "Ash"
+
+# On your birthday ("MM-DD") every encounter is shiny.
+# birthday = "05-22"
+
+# "south" flips the seasons (Dec-Feb becomes summer). Affects the season themes and
+# Deerling / Sawsbuck / Castform forms.
+# hemisphere = "north"
+
+# Odds are "1 in N".
+# shiny_odds = 128
+# alt_form_odds = 10   # alternate forms, for species that have them
+# event_odds = 2       # one-day events like Valentine's (Halloween always happens)
+# theme_odds = 6       # spooky season, exam season, night owls, early birds
+# season_odds = 8      # winter / spring / summer / autumn
+
+# Exam season: Psychic/brainy "study buddies" show up during these date ranges.
+# Off unless you set it.
+# exam_windows = [["12-08", "12-22"], ["04-10", "04-27"]]
+
+# Turn off any event or theme by id:
+#   events:  new-year valentines pokemon-day st-patricks april-fools canada-day halloween christmas
+#   themes:  spooky-season exam-season night-owls early-birds
+#   seasons: winter spring summer autumn
+# disabled = ["canada-day", "night-owls"]
+
+# Colours: ANSI names ("green", "bright-black", ...) and 0-255 indices follow your
+# terminal theme; "#rrggbb" picks an exact colour. "default" is your normal text colour.
+# [colors]
+# accent = "green"        # Pokémon name, progress bars
+# gold = "yellow"         # shinies
+# dim = "bright-black"    # secondary text
+# new = "red"             # NEW! tags
+# text = "default"
