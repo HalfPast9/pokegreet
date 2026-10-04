@@ -70,32 +70,32 @@ Most of the time, any of the 905 Pokémon can appear. A theme takes over some en
 
 | | Who shows up |
 |---|---|
-| ⛄ Winter | Ice types, penguins, Snorlax hibernating, Alolan and Galarian ice forms, Cyndaquil by the fire |
-| 🌸 Spring | Flowers, butterflies, bees, rain frogs, Easter bunnies and eggs |
-| 🌊 Summer | Beach and ocean Pokémon, desert dwellers, fireflies and cicadas, Oricorio |
-| 🍂 Autumn | Falling leaves, mushrooms, harvest, crows, sweater-sheep, cozy candles and tea |
+| Winter | Ice types, penguins, Snorlax hibernating, Alolan and Galarian ice forms, Cyndaquil by the fire |
+| Spring | Flowers, butterflies, bees, rain frogs, Easter bunnies and eggs |
+| Summer | Beach and ocean Pokémon, desert dwellers, fireflies and cicadas, Oricorio |
+| Autumn | Falling leaves, mushrooms, harvest, crows, sweater-sheep, cozy candles and tea |
 
 **Themes** (1 in 6 while active)
 
 | | When | Who shows up |
 |---|---|---|
-| 🎃 Spooky season | October | Ghost types |
-| 🌙 Night owls | 10pm–5am | Dark types, owls, bats, the moon crew |
-| 🌅 Early birds | 5am–9am | Birds and sun Pokémon |
-| 📚 Exam season | dates you configure | The study group: Alakazam, Porygon, Magnemite, Unown, Elgyem, PhD Pikachu… |
+| Spooky season | October | Ghost types |
+| Night owls | 10pm–5am | Dark types, owls, bats, the moon crew |
+| Early birds | 5am–9am | Birds and sun Pokémon |
+| Exam season | dates you configure | The study group: Alakazam, Porygon, Magnemite, Unown, Elgyem, PhD Pikachu… |
 
 **One-day events** (1 in 2 on the day)
 
 | | Date | |
 |---|---|---|
-| 🎆 New Year | Dec 31, Jan 1 | Jirachi and lucky Pokémon |
-| 💝 Valentine's | Feb 14 | Luvdisc, Alomomola, Woobat, love-topped Alcremie |
-| 🎉 Pokémon Day | Feb 27 | Pikachu (any of its 17 forms), Eevee, every starter |
-| 🍀 St. Patrick's | Mar 17 | Green Grass types, clover-topped Alcremie |
-| 🎭 April Fools | Apr 1 | "A wild Mewtwo appeared! …wait, it's actually Ditto!" |
-| 🍁 Canada Day | Jul 1 | Red and white Pokémon |
-| 🎃 Halloween | Oct 31 | Ghosts, every single time |
-| 🎄 Christmas | Dec 24–25 | Delibird, Stantler, Snover and friends |
+| New Year | Dec 31, Jan 1 | Jirachi and lucky Pokémon |
+| Valentine's | Feb 14 | Luvdisc, Alomomola, Woobat, love-topped Alcremie |
+| Pokémon Day | Feb 27 | Pikachu (any of its 17 forms), Eevee, every starter |
+| St. Patrick's | Mar 17 | Green Grass types, clover-topped Alcremie |
+| April Fools | Apr 1 | "A wild Mewtwo appeared! …wait, it's actually Ditto!" |
+| Canada Day | Jul 1 | Red and white Pokémon |
+| Halloween | Oct 31 | Ghosts, every single time |
+| Christmas | Dec 24–25 | Delibird, Stantler, Snover and friends |
 
 **Forms that follow the real world**: Deerling and Sawsbuck wear the current season's coat, Castform matches the weather of the season, Cherrim opens up during the day, Lycanroc is midday, dusk or midnight depending on the hour, and Necrozma shows up as Dawn Wings in the morning, Ultra at noon and Dusk Mane in the evening.
 
