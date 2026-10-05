@@ -740,7 +740,9 @@ def main():
         show_styles(cfg, datetime.datetime.now())
     elif args:
         die(f"unknown option {args[0]!r} (try --help)")
-    else:
+    elif sys.stdout.isatty():
+        # Only real terminals get an encounter: shells started by scripts, editors or
+        # agents (output piped or discarded) would otherwise log encounters nobody saw.
         render(*build_encounter(cfg, datetime.datetime.now()), cfg)
 
 
