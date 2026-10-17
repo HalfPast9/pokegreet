@@ -3,8 +3,8 @@
 A wild Pokémon appears every time you open a terminal, and you're catching 'em all whether you like it or not.
 
 <p align="center">
-  <img src="assets/encounter.gif" alt="A wild Lapras fades in from a dark silhouette, with Pokédex progress in a rounded panel" width="49%">
-  <img src="assets/shiny.gif" alt="A shiny Gengar appears after a white flash and sparkles, during spooky season" width="49%">
+  <img src="assets/encounter.png" alt="A wild Lapras with Pokédex progress in a rounded panel, above the shell prompt" width="49%">
+  <img src="assets/shiny.png" alt="A shiny Gengar during spooky season, above the shell prompt" width="49%">
 </p>
 
 Built on the sprites from [pokemon-colorscripts](https://gitlab.com/phoneybadger/pokemon-colorscripts). It adds:
@@ -156,6 +156,11 @@ Off by default. Run `pokegreet --animations` to watch them all. Each takes about
 | `animation = "flash"` | The pre-battle screen flash, then the reveal |
 | `animation = "slide"` | The silhouette slides in from the left like in Ruby/Sapphire, then the reveal |
 | `shiny_sparkle = true` | Shinies twinkle for a moment after they appear |
+
+<p align="center">
+  <img src="assets/reveal.gif" alt="A wild Lapras fades in from a dark silhouette" width="49%">
+  <img src="assets/shiny-flash.gif" alt="A shiny Gengar appears after a white flash and sparkles" width="49%">
+</p>
 
 Your save file lives at `~/.local/share/pokegreet/dex.json` (it respects `XDG_DATA_HOME`/`XDG_CONFIG_HOME`). If pokegreet can't find your pokemon-colorscripts install, point `POKEGREET_COLORSCRIPTS_DIR` at the folder that contains `pokemon.json`.
 
