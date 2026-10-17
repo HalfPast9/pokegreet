@@ -8,6 +8,7 @@ usage:
   pokegreet --at DATETIME   preview an encounter at e.g. 2026-10-31T23:00 (not saved)
   pokegreet --styles        the same encounter in every display style
   pokegreet --animations    play every encounter animation (not saved)
+  pokegreet --configure     a wizard that previews each choice and writes your config
   pokegreet --check         validate the theme pools against your sprite data
   pokegreet --version
 
@@ -21,9 +22,12 @@ import json
 import os
 import random
 import re
+import select
 import shutil
 import sys
+import termios
 import time
+import tty
 import unicodedata
 
 VERSION = "1.0.0"
@@ -239,22 +243,30 @@ def parse_mmdd(s, what):
         die(f"bad {what} {s!r} in {CONFIG_FILE}, expected \"MM-DD\"")
 
 
-def load_config():
+def read_config_file():
+    """The settings in the config file, as written (not validated); {} if there's no file."""
+    if not os.path.exists(CONFIG_FILE):
+        return {}
+    try:
+        import tomllib
+    except ImportError:
+        die(f"reading {CONFIG_FILE} needs Python 3.11+ (or remove the file to use defaults)")
+    try:
+        with open(CONFIG_FILE, "rb") as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        die(f"couldn't parse {CONFIG_FILE}: {e}")
+
+
+def load_config(user=None):
+    """Defaults + the config file (or `user`, a dict of settings), validated."""
     cfg = {**DEFAULTS, "colors": dict(DEFAULTS["colors"])}
-    if os.path.exists(CONFIG_FILE):
-        try:
-            import tomllib
-        except ImportError:
-            die(f"reading {CONFIG_FILE} needs Python 3.11+ (or remove the file to use defaults)")
-        try:
-            with open(CONFIG_FILE, "rb") as f:
-                user = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            die(f"couldn't parse {CONFIG_FILE}: {e}")
+    user = read_config_file() if user is None else dict(user)
+    if user:
         unknown = set(user) - set(DEFAULTS)
         if unknown:
             die(f"unknown setting(s) in {CONFIG_FILE}: {', '.join(sorted(unknown))}")
-        colors = user.pop("colors", {})
+        colors = dict(user.pop("colors", {}))
         unknown = set(colors) - set(DEFAULTS["colors"])
         if unknown:
             die(f"unknown colour(s) in {CONFIG_FILE}: {', '.join(sorted(unknown))} "
@@ -803,6 +815,206 @@ def show_animations(cfg, t):
     print(c("dim", f" Set animation = {' | '.join(ANIMATIONS)} and shiny_sparkle = true in {CONFIG_FILE}"))
 
 
+# ---------- --configure ----------
+
+class Quit(Exception):
+    pass
+
+
+def read_key():
+    """One keypress without waiting for Enter: a character, or "left" / "right" / "enter"."""
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setcbreak(fd)
+        termios.tcflush(fd, termios.TCIFLUSH)  # forget keys pressed while an animation played
+        key = os.read(fd, 1)
+        if key == b"\x1b" and select.select([fd], [], [], 0.05)[0]:
+            key += os.read(fd, 2)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return {b"\x1b[C": "right", b"\x1b[D": "left", b"\r": "enter", b"\n": "enter"}.get(
+        key, key.decode(errors="ignore").lower())
+
+
+def screen(title, question):
+    print("\x1b[H\x1b[2J", end="")
+    print(c("accent", f" pokegreet · {title}", bold=True))
+    print(c("text", f" {question}"))
+    print()
+
+
+def choose(title, question, options, preview, start=0, replay=False):
+    """One wizard question: browse options with ←/→ (or their number), pick with Enter.
+
+    `options` are (value, label) pairs; `preview(value)` draws that option."""
+    i = start
+    while True:
+        screen(title, question)
+        preview(options[i][0])
+        print()
+        print(" " + "   ".join(c("accent", f"({n}) {label}", bold=True) if n - 1 == i else c("dim", f"({n}) {label}")
+                               for n, (_, label) in enumerate(options, 1)))
+        print(c("dim", " ←/→ browse · Enter choose" + (" · r replay" if replay else "") + " · q quit"))
+        key = read_key()
+        if key in ("right", "l", "n"):
+            i = (i + 1) % len(options)
+        elif key in ("left", "h", "p"):
+            i = (i - 1) % len(options)
+        elif key.isdigit() and 1 <= int(key) <= len(options):
+            i = int(key) - 1
+        elif key == "enter":
+            return options[i][0]
+        elif key == "q":
+            raise Quit
+
+
+def ask(prompt, current, valid):
+    """A typed answer. Enter keeps `current`, "-" clears it; `valid(text)` returns an error or None."""
+    hint = f" [{current}, or - to clear]" if current else " (Enter to skip)"
+    while True:
+        answer = input(c("text", f" {prompt}{hint}: ")).strip()
+        if not answer:
+            return current
+        if answer == "-":
+            return ""
+        error = valid(answer)
+        if not error:
+            return answer
+        print(c("new", f" {error}"))
+
+
+def valid_mmdd(text):
+    try:
+        month, day = (int(x) for x in text.split("-"))
+        datetime.date(2000, month, day)
+    except ValueError:
+        return "Use MM-DD, like 05-22."
+
+
+def toml_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, list):
+        return "[" + ", ".join(toml_value(x) for x in v) + "]"
+    return json.dumps(str(v), ensure_ascii=False)  # JSON string escapes are valid TOML
+
+
+def config_text(settings):
+    lines = [f"# pokegreet config, written by `pokegreet --configure` on {datetime.date.today()}.",
+             "# Run that again any time, or edit by hand: config.example.toml lists every setting.", ""]
+    lines += [f"{key} = {toml_value(settings[key])}" for key in DEFAULTS if key in settings and key != "colors"]
+    if settings.get("colors"):
+        lines += ["", "[colors]"] + [f"{k} = {toml_value(v)}" for k, v in settings["colors"].items()]
+    return "\n".join(lines) + "\n"
+
+
+def configure():
+    """A p10k-style wizard: preview each choice on a real encounter, then write the config."""
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        die("--configure is interactive: run it in a terminal")
+    if sys.version_info < (3, 11):  # tomllib, to read the file back
+        die("the config file needs Python 3.11+, so --configure does too")
+    try:
+        existing = read_config_file()
+        cfg = load_config(existing)
+        problem = None
+    except SystemExit as e:  # a broken config shouldn't stop you from fixing it
+        existing, cfg, problem = {}, load_config({}), str(e)
+    COLORS.update(cfg["colors"])
+    t = datetime.datetime.now()
+    seed = random.randrange(1 << 30)
+
+    def encounter(shiny):  # the same unsaved Pokémon for every preview
+        random.seed(seed)
+        sprite, parts = build_encounter({**cfg, "birthday": None, "shiny_odds": 1 if shiny else 1 << 30}, t, save=False)
+        parts["notes"] = parts["notes"][:-1]  # drop the "preview, not saved" line
+        return sprite, parts
+
+    normal, shiny = encounter(False), encounter(True)
+    picks = {}
+
+    def show(enc, over):
+        return lambda value: render(*enc, {**cfg, **picks, **over(value)})
+
+    saved = False
+    print("\x1b[?1049h", end="")  # the alternate screen, so the wizard leaves no trace
+    try:
+        screen("configuration", "A few questions with previews. Nothing is saved until the end.")
+        if problem:
+            print(c("new", f" {problem}"))
+            print(c("dim", " Starting from the defaults; the old file will be kept as a .bak."))
+            print()
+        render(*normal, {**cfg, "animation": "off"}, animate=False)
+        print()
+        print(c("dim", " Press any key to start, q to quit."))
+        if read_key() == "q":
+            raise Quit
+
+        picks["style"] = choose("style", "How should the info look?", [(s, s) for s in STYLES],
+                                show(normal, lambda s: {"style": s, "animation": "off"}),
+                                STYLES.index(cfg["style"]))
+        if picks["style"] not in ("plain", "rail"):  # the only styles without a box
+            picks["border"] = choose("border", "Which border?", [(b, b) for b in BORDERS],
+                                     show(normal, lambda b: {"border": b, "animation": "off"}),
+                                     list(BORDERS).index(cfg["border"]))
+        picks["animation"] = choose("animation", "How should the Pokémon appear?", [(a, a) for a in ANIMATIONS],
+                                    show(normal, lambda a: {"animation": a, "shiny_sparkle": False}),
+                                    ANIMATIONS.index(cfg["animation"]), replay=True)
+        picks["shiny_sparkle"] = choose(
+            "shinies", f"Should shinies sparkle when they appear? (1 in {cfg['shiny_odds']} encounters)",
+            [(True, "yes"), (False, "no")], show(shiny, lambda v: {"shiny_sparkle": v, "animation": picks["animation"]}),
+            0 if cfg["shiny_sparkle"] else 1, replay=True)
+        picks["hemisphere"] = choose(
+            "seasons", "Where do you live? The seasons change which Pokémon show up.",
+            [("north", "northern hemisphere"), ("south", "southern hemisphere")],
+            lambda h: print(c("text", f" It's {real_season(t, {'hemisphere': h})} there now: ")
+                            + c("dim", SEASONS[real_season(t, {"hemisphere": h})]["footer"])),
+            0 if cfg["hemisphere"] != "south" else 1)
+
+        screen("birthday", "Every Pokémon you meet on your birthday is shiny.")
+        print("\x1b[?25h", end="")
+        birthday = ask("Your birthday as MM-DD", existing.get("birthday", ""), valid_mmdd)
+        name = ask("A name for the birthday message", existing.get("name", ""), lambda _: None) if birthday else ""
+
+        settings = {**existing, **picks, "birthday": birthday, "name": name}
+        settings = {k: v for k, v in settings.items() if v != "" or k not in ("birthday", "name")}
+        text = config_text(settings)
+        screen("done", f"This will be saved to {CONFIG_FILE}:")
+        print("\n".join(c("dim", "   " + line) if line.startswith("#") else "   " + line for line in text.splitlines()))
+        print()
+        if existing or problem:
+            print(c("dim", f" Your current file will be kept as {CONFIG_FILE}.bak"))
+        print(c("text", " Save it? (y/n)"))
+        while (key := read_key()) not in ("y", "n", "q"):
+            pass
+        saved = key == "y"
+    except (Quit, KeyboardInterrupt):
+        pass
+    finally:  # always give the terminal back, even if something went wrong
+        print("\x1b[?1049l\x1b[?25h", end="", flush=True)
+    if not saved:
+        print("pokegreet: nothing was saved.")
+        return
+
+    os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+    backup = CONFIG_FILE + ".bak"
+    if os.path.exists(CONFIG_FILE):
+        shutil.copy2(CONFIG_FILE, backup)
+    with open(CONFIG_FILE, "w") as f:
+        f.write(text)
+    try:
+        load_config()
+    except SystemExit as e:  # never leave a config behind that pokegreet can't read
+        if os.path.exists(backup):
+            shutil.copy2(backup, CONFIG_FILE)
+        die(f"the new config didn't load ({e}); your old one is back in place")
+    print(f"pokegreet: saved {CONFIG_FILE}" + (f" (the old one is {backup})" if os.path.exists(backup) else ""))
+    print("Open a new terminal to see it, or run pokegreet --configure again to change anything.")
+
+
 # ---------- --dex ----------
 
 def show_dex(query=None):
@@ -906,6 +1118,9 @@ def main():
         return
     if args and args[0] == "--version":
         print(f"pokegreet {VERSION}  {REPO}")
+        return
+    if args and args[0] == "--configure":  # before load_config, so it can fix a broken config
+        configure()
         return
     cfg = load_config()
     COLORS.update(cfg["colors"])

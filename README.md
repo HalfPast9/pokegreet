@@ -60,6 +60,7 @@ pokegreet --dex rotom     form-by-form progress for one species
 pokegreet --at 2026-10-31T23:00   preview what an encounter looks like then (not saved)
 pokegreet --styles        the same encounter in every display style
 pokegreet --animations    every encounter animation, on the same Pokémon
+pokegreet --configure     a wizard that previews each choice and writes your config
 pokegreet --check         check the theme pools against your installed sprites
 ```
 
@@ -102,7 +103,13 @@ Most of the time, any of the 905 Pokémon can appear. A theme takes over some en
 
 ## Configuration
 
-Everything works out of the box. To personalise it, copy [`config.example.toml`](config.example.toml) to `~/.config/pokegreet/config.toml`:
+Everything works out of the box. To personalise it, run the wizard, which shows each choice on a real encounter (style, border, animation, shiny sparkle, hemisphere, birthday) and writes the file for you:
+
+```sh
+pokegreet --configure
+```
+
+It keeps any settings it doesn't ask about, and backs up your old file to `config.toml.bak`. Or copy [`config.example.toml`](config.example.toml) to `~/.config/pokegreet/config.toml` and edit it by hand:
 
 ```toml
 name = "Ash"

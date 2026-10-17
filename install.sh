@@ -83,5 +83,6 @@ fi
 
 say ""
 say "Done! Open a new terminal to meet your first wild Pokémon."
-say "  pokegreet --dex   see your progress"
-say "  pokegreet --help  everything else"
+say "  pokegreet --configure  pick a style and animation"
+say "  pokegreet --dex        see your progress"
+say "  pokegreet --help       everything else"

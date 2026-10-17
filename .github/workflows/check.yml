@@ -32,4 +32,5 @@ jobs:
           ./pokegreet --dex pikachu
           ./pokegreet --styles > /dev/null
           ./pokegreet --animations > /dev/null
+          ! ./pokegreet --configure < /dev/null   # interactive only: must refuse without a terminal
           sh -n install.sh
