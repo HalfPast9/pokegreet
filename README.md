@@ -3,8 +3,8 @@
 A wild Pokémon appears every time you open a terminal, and you're catching 'em all whether you like it or not.
 
 <p align="center">
-  <img src="assets/screenshot1.png" alt="A wild Braixen appears, with Pokédex progress in a rounded panel" width="49%">
-  <img src="assets/screenshot2.png" alt="A wild Manectric appears, with form collection progress" width="49%">
+  <img src="assets/encounter.gif" alt="A wild Lapras fades in from a dark silhouette, with Pokédex progress in a rounded panel" width="49%">
+  <img src="assets/shiny.gif" alt="A shiny Gengar appears after a white flash and sparkles, during spooky season" width="49%">
 </p>
 
 Built on the sprites from [pokemon-colorscripts](https://gitlab.com/phoneybadger/pokemon-colorscripts). It adds:
@@ -108,6 +108,10 @@ Everything works out of the box. To personalise it, run the wizard, which shows 
 ```sh
 pokegreet --configure
 ```
+
+<p align="center">
+  <img src="assets/configure.gif" alt="The configuration wizard previewing styles, borders and animations on a Rowlet" width="80%">
+</p>
 
 It keeps any settings it doesn't ask about, and backs up your old file to `config.toml.bak`. Or copy [`config.example.toml`](config.example.toml) to `~/.config/pokegreet/config.toml` and edit it by hand:
 
