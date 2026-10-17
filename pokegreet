@@ -744,23 +744,23 @@ def animation(sprite, parts, cfg):
 
     def fade_in(hold):  # a dark silhouette fades into colour, like the Gen 1-2 encounter intro
         return [(shadow, True, hold),
-                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 1 / 3)), True, 0.15),
-                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 2 / 3)), True, 0.15)]
+                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 1 / 3)), True, 0.08),
+                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 2 / 3)), True, 0.08)]
 
     def flash():  # the screen flash before a wild battle
         white = tint(sprite, lambda rgb: FLASH)
-        return [(white, True, 0.08), (shadow, True, 0.08), (white, True, 0.08)]
+        return [(white, True, 0.05), (shadow, True, 0.05), (white, True, 0.05)]
 
     seq = []
     if kind == "reveal":
-        seq = fade_in(0.6)
+        seq = fade_in(0.3)
     elif kind == "flash":
-        seq = flash() + fade_in(0.35)
+        seq = flash() + fade_in(0.18)
     elif kind == "slide":  # slides in from the left as a silhouette, like Ruby/Sapphire/Emerald
-        seq = [(crop_left(shadow, round(w * f)), True, 0.05) for f in (0.8, 0.5, 0.25, 0.08)] + fade_in(0.35)
-    seq.append((sprite, False, 0.18))
+        seq = [(crop_left(shadow, round(w * f)), True, 0.035) for f in (0.8, 0.5, 0.25, 0.08)] + fade_in(0.18)
+    seq.append((sprite, False, 0.12))
     if parts["shiny"] and cfg["shiny_sparkle"]:
-        seq += [(s, False, 0.18) for s in sparkles(sprite)] + [(sprite, False, 0)]
+        seq += [(s, False, 0.12) for s in sparkles(sprite)] + [(sprite, False, 0)]
     # every frame is as wide as the sprite, so the layout around it never moves
     return [(fit(s, w), hidden, hold) for s, hidden, hold in seq]
 

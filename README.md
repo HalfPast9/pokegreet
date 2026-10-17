@@ -144,7 +144,7 @@ Run `pokegreet --styles` to see them all with a real sprite.
 
 ### Animations
 
-Off by default. Run `pokegreet --animations` to watch them all. Each takes about a second.
+Off by default. Run `pokegreet --animations` to watch them all. Each takes about half a second.
 
 | Setting | Looks like |
 |---|---|
