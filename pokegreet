@@ -7,6 +7,7 @@ usage:
   pokegreet --dex NAME      form-by-form progress for one species
   pokegreet --at DATETIME   preview an encounter at e.g. 2026-10-31T23:00 (not saved)
   pokegreet --styles        the same encounter in every display style
+  pokegreet --animations    play every encounter animation (not saved)
   pokegreet --check         validate the theme pools against your sprite data
   pokegreet --version
 
@@ -22,6 +23,7 @@ import random
 import re
 import shutil
 import sys
+import time
 import unicodedata
 
 VERSION = "1.0.0"
@@ -46,6 +48,8 @@ DEFAULTS = {
     "disabled": [],           # ids of events/themes to turn off, e.g. ["canada-day", "night-owls"]
     "style": "panel",         # panel, plain, stacked, card, dialog, rail
     "border": "round",        # round, square, double, heavy
+    "animation": "off",       # off, reveal, flash, slide
+    "shiny_sparkle": False,   # shinies twinkle for a moment after they appear
     "colors": {
         # ANSI colour names / 0-255 indices follow your terminal theme; "#rrggbb" for exact colours
         "accent": "green", "gold": "yellow", "dim": "bright-black", "new": "red", "text": "default",
@@ -212,6 +216,7 @@ SPECIAL_FORMS = {"gmax": "Gigantamax", "alola": "Alolan", "galar": "Galarian", "
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 STYLES = ("panel", "plain", "stacked", "card", "dialog", "rail")
+ANIMATIONS = ("off", "reveal", "flash", "slide")
 BORDERS = {"round": "╭╮╰╯─│", "square": "┌┐└┘─│", "double": "╔╗╚╝═║", "heavy": "┏┓┗┛━┃"}
 COLOR_NAMES = {"black": 0, "red": 1, "green": 2, "yellow": 3, "blue": 4, "magenta": 5, "cyan": 6,
                "white": 7, "bright-black": 8, "gray": 8, "grey": 8, "bright-red": 9,
@@ -264,6 +269,8 @@ def load_config():
         die(f"unknown style {cfg['style']!r} in {CONFIG_FILE} (available: {', '.join(STYLES)})")
     if cfg["border"] not in BORDERS:
         die(f"unknown border {cfg['border']!r} in {CONFIG_FILE} (available: {', '.join(BORDERS)})")
+    if cfg["animation"] not in ANIMATIONS:
+        die(f"unknown animation {cfg['animation']!r} in {CONFIG_FILE} (available: {', '.join(ANIMATIONS)})")
     return cfg
 
 
@@ -515,8 +522,13 @@ def build_encounter(cfg, t, save=True):
     if not save:
         notes.append(c("dim", f"(preview of {t:%Y-%m-%d %H:%M}, not saved)"))
 
+    # what the animations hide until the Pokémon is revealed (same width, so nothing moves)
+    names = sorted({title, shown_title, pretty_name(name), pretty_name(shown_name)}, key=len, reverse=True)
+    mask = [(n, "?" * width(n)) for n in names] + [(f"#{dex_no:03d}", "#???")]
+
     parts = {"head": head, "info": c("dim", f"#{dex_no:03d} · {region} · Gen {roman}"), "stats": stats,
-             "notes": notes, "footer": c("dim", enc["footer"]) if enc["footer"] else ""}
+             "notes": notes, "footer": c("dim", enc["footer"]) if enc["footer"] else "",
+             "shiny": shiny, "mask": mask}
     return sprite, parts
 
 
@@ -528,7 +540,7 @@ def show_styles(cfg, t):
         print()
         print(c("gold", f' style = "{style}"', bold=True) + c("dim", "  (default)" if style == DEFAULTS["style"] else ""))
         print()
-        render(sprite, parts, {**cfg, "style": style})
+        render(sprite, parts, {**cfg, "style": style}, animate=False)
     print()
     print(c("dim", f" Set one in {CONFIG_FILE}, along with border = round | square | double | heavy"))
 
@@ -610,12 +622,185 @@ def compose(sprite, p, cfg, cols=None):
     return join(sprite, box(p["head"] + [""] + p["stats"] + [""] + p["notes"], cfg, title=p["info"], footer=p["footer"]))
 
 
-def render(sprite, parts, cfg):
+def layout(sprite, parts, cfg):
     cols = shutil.get_terminal_size((80, 24)).columns
     out = compose(sprite, parts, cfg, cols)
     if max(map(width, out)) > cols:  # too narrow for side by side
         out = compose(sprite, parts, cfg)
-    print("\n".join(out))
+    return out
+
+
+def render(sprite, parts, cfg, animate=True):
+    if not animate:
+        print("\n".join(layout(sprite, parts, cfg)))
+        return
+    frames = []
+    for frame_sprite, hidden, hold in animation(sprite, parts, cfg):
+        lines = layout(frame_sprite, parts, cfg)
+        for old, new in parts["mask"] if hidden else []:
+            lines = [l.replace(old, new) for l in lines]
+        frames.append((lines, hold))
+    play(frames)
+
+
+# ---------- animation ----------
+# Frames are whole layouts redrawn in place; only the sprite (and the hidden name) changes,
+# so every frame is the same size.
+
+RGB_RE = re.compile(r"([34]8);2;(\d+);(\d+);(\d+)")
+TOKEN_RE = re.compile(r"(\x1b\[[0-9;]*m)|(.)")
+SHADOW = (70, 70, 84)
+FLASH = (245, 245, 245)
+
+def tint(sprite, recolor):
+    """Recolour every pixel of a sprite: recolor((r, g, b)) -> (r, g, b)."""
+    def sub(m):
+        r, g, b = recolor(tuple(int(x) for x in m.groups()[1:]))
+        return f"{m[1]};2;{r};{g};{b}"
+    return [RGB_RE.sub(sub, line) for line in sprite]
+
+
+def blend(a, b, k):
+    return tuple(round(x + (y - x) * k) for x, y in zip(a, b))
+
+
+def cells(line):
+    """[(escape codes before it, char)] for each character cell of an ANSI line."""
+    out, esc = [], ""
+    for code, ch in TOKEN_RE.findall(line):
+        if code:
+            esc += code
+        else:
+            out.append((esc, ch))
+            esc = ""
+    return out
+
+
+def crop_left(sprite, k):
+    """Drop the first k cells of every line, as if the sprite were partly off the left edge."""
+    out = []
+    for line in sprite:
+        cs = cells(line)
+        # keep the dropped cells' escape codes so the terminal state stays right
+        out.append("".join(e for e, _ in cs[:k]) + "".join(e + ch for e, ch in cs[k:]) + "\x1b[0m")
+    return out
+
+
+def fit(lines, w):
+    """Pad every line to width w, so a cropped frame takes up as much room as the full sprite."""
+    return [pad(line, w) for line in lines]
+
+
+def sparkles(sprite):
+    """A few frames of sparkles twinkling in the empty cells hugging the sprite's outline."""
+    grid = []
+    for line in sprite:
+        row, bg = [], False
+        for esc, ch in cells(line):
+            for code in re.findall(r"\x1b\[[0-9;]*m", esc):
+                bg = code.startswith("\x1b[48;") or (bg and code not in ("\x1b[0m", "\x1b[m"))
+            row.append((esc, ch, ch == " " and not bg))
+        grid.append(row)
+
+    def filled(y, x):
+        return 0 <= y < len(grid) and 0 <= x < len(grid[y]) and not grid[y][x][2]
+
+    edge = [(y, x) for y, row in enumerate(grid) for x, cell in enumerate(row)
+            if cell[2] and any(filled(y + dy, x + dx) for dy, dx in ((-1, 0), (1, 0), (0, -2), (0, 2)))]
+    random.shuffle(edge)
+    spots = []
+    for y, x in edge:  # spread them out
+        if all(abs(y - sy) * 2 + abs(x - sx) >= 8 for sy, sx in spots):
+            spots.append((y, x))
+        if len(spots) == 3:
+            break
+    script = [{0: "✦"}, {0: "✧", 1: "✦", 2: "·"}, {1: "·", 2: "✦"}]
+    frames = []
+    for marks in script:
+        at = {spots[i]: ch for i, ch in marks.items() if i < len(spots)}
+        frames.append(["".join(esc + (c("gold", at[(y, x)], bold=True) if (y, x) in at else ch)
+                               for x, (esc, ch, _) in enumerate(row)) + "\x1b[0m"
+                       for y, row in enumerate(grid)])
+    return frames
+
+
+def animation(sprite, parts, cfg):
+    """[(sprite, name hidden?, seconds to hold)], ending on the real sprite."""
+    kind = cfg["animation"]
+    shadow = tint(sprite, lambda rgb: SHADOW)
+    w = max(map(width, sprite))
+
+    def fade_in(hold):  # a dark silhouette fades into colour, like the Gen 1-2 encounter intro
+        return [(shadow, True, hold),
+                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 1 / 3)), True, 0.15),
+                (tint(sprite, lambda rgb: blend(SHADOW, rgb, 2 / 3)), True, 0.15)]
+
+    def flash():  # the screen flash before a wild battle
+        white = tint(sprite, lambda rgb: FLASH)
+        return [(white, True, 0.08), (shadow, True, 0.08), (white, True, 0.08)]
+
+    seq = []
+    if kind == "reveal":
+        seq = fade_in(0.6)
+    elif kind == "flash":
+        seq = flash() + fade_in(0.35)
+    elif kind == "slide":  # slides in from the left as a silhouette, like Ruby/Sapphire/Emerald
+        seq = [(crop_left(shadow, round(w * f)), True, 0.05) for f in (0.8, 0.5, 0.25, 0.08)] + fade_in(0.35)
+    seq.append((sprite, False, 0.18))
+    if parts["shiny"] and cfg["shiny_sparkle"]:
+        seq += [(s, False, 0.18) for s in sparkles(sprite)] + [(sprite, False, 0)]
+    # every frame is as wide as the sprite, so the layout around it never moves
+    return [(fit(s, w), hidden, hold) for s, hidden, hold in seq]
+
+
+def play(frames):
+    """Draw each frame over the last one. Falls back to the final frame when that can't work."""
+    final = frames[-1][0]
+    size = shutil.get_terminal_size((80, 24))
+    if (len(frames) == 1 or not sys.stdout.isatty() or len(final) >= size.lines
+            or max(width(l) for f, _ in frames for l in f) > size.columns):
+        print("\n".join(final))
+        return
+    height = max(len(f) for f, _ in frames)
+    out = sys.stdout
+    out.write("\x1b[?25l")  # hide the cursor while drawing
+    try:
+        for i, (lines, hold) in enumerate(frames):
+            if i:
+                out.write(f"\x1b[{height}A\r")
+            out.write("".join(line + "\x1b[K\n" for line in lines + [""] * (height - len(lines))))
+            out.flush()
+            if i < len(frames) - 1:
+                time.sleep(hold)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        out.write("\x1b[?25h")
+        out.flush()
+
+
+def show_animations(cfg, t):
+    """Every animation on the same (unsaved) Pokémon, then a shiny sparkle."""
+    seed = random.randrange(1 << 30)
+    demos = [(f'animation = "{kind}"', {"animation": kind, "shiny_sparkle": False}) for kind in ANIMATIONS[1:]]
+    demos.append(("shiny_sparkle = true", {"animation": "off", "shiny_sparkle": True, "shiny_odds": 1}))
+    for label, opts in demos:
+        demo_cfg = {**cfg, **opts, "birthday": None}
+        if "shiny_odds" not in opts:
+            demo_cfg["shiny_odds"] = 1 << 30
+        random.seed(seed)  # same Pokémon every time (the shiny roll comes after the species roll)
+        sprite, parts = build_encounter(demo_cfg, t, save=False)
+        parts["notes"] = parts["notes"][:-1]  # drop the "preview, not saved" line
+        print()
+        print(c("gold", f" {label}", bold=True))
+        print()
+        if sys.stdout.isatty():
+            time.sleep(0.6)
+        render(sprite, parts, demo_cfg)
+        if sys.stdout.isatty():
+            time.sleep(0.8)
+    print()
+    print(c("dim", f" Set animation = {' | '.join(ANIMATIONS)} and shiny_sparkle = true in {CONFIG_FILE}"))
 
 
 # ---------- --dex ----------
@@ -738,6 +923,8 @@ def main():
         render(*build_encounter(cfg, t, save=False), cfg)
     elif args and args[0] == "--styles":
         show_styles(cfg, datetime.datetime.now())
+    elif args and args[0] == "--animations":
+        show_animations(cfg, datetime.datetime.now())
     elif args:
         die(f"unknown option {args[0]!r} (try --help)")
     elif sys.stdout.isatty():

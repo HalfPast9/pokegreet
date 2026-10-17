@@ -38,6 +38,14 @@
 # style = "panel"
 # border = "round"        # round, square, double, heavy
 
+# A short animation when the Pokémon appears (run `pokegreet --animations` to see them):
+#   off    - just print it (default)
+#   reveal - a dark silhouette fades into colour, like the Gen 1-2 encounter intro
+#   flash  - the pre-battle screen flash, then the reveal
+#   slide  - the silhouette slides in from the left (Ruby/Sapphire style), then the reveal
+# animation = "off"
+# shiny_sparkle = false   # shinies twinkle for a moment after they appear
+
 # Colours: ANSI names ("green", "bright-black", ...) and 0-255 indices follow your
 # terminal theme; "#rrggbb" picks an exact colour. "default" is your normal text colour.
 # [colors]

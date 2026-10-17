@@ -31,4 +31,5 @@ jobs:
           ./pokegreet --dex
           ./pokegreet --dex pikachu
           ./pokegreet --styles > /dev/null
+          ./pokegreet --animations > /dev/null
           sh -n install.sh

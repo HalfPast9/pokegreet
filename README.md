@@ -59,6 +59,7 @@ pokegreet --dex           Pokédex, shiny dex, regional progress and form collec
 pokegreet --dex rotom     form-by-form progress for one species
 pokegreet --at 2026-10-31T23:00   preview what an encounter looks like then (not saved)
 pokegreet --styles        the same encounter in every display style
+pokegreet --animations    every encounter animation, on the same Pokémon
 pokegreet --check         check the theme pools against your installed sprites
 ```
 
@@ -112,6 +113,8 @@ disabled = ["canada-day"]          # any event/theme id
 shiny_odds = 64
 style = "stacked"                  # see below
 border = "heavy"
+animation = "reveal"               # see below
+shiny_sparkle = true
 
 [colors]                           # defaults follow your terminal's palette
 accent = "#bccf77"
@@ -131,6 +134,17 @@ Run `pokegreet --styles` to see them all with a real sprite.
 | `rail` | A coloured bar beside the title, no box |
 
 `border` can be `round`, `square`, `double` or `heavy`. On narrow terminals the info drops below the sprite.
+
+### Animations
+
+Off by default. Run `pokegreet --animations` to watch them all. Each takes about a second.
+
+| Setting | Looks like |
+|---|---|
+| `animation = "reveal"` | The Pokémon appears as a dark silhouette and fades into colour, with its name hidden until it does |
+| `animation = "flash"` | The pre-battle screen flash, then the reveal |
+| `animation = "slide"` | The silhouette slides in from the left like in Ruby/Sapphire, then the reveal |
+| `shiny_sparkle = true` | Shinies twinkle for a moment after they appear |
 
 Your save file lives at `~/.local/share/pokegreet/dex.json` (it respects `XDG_DATA_HOME`/`XDG_CONFIG_HOME`). If pokegreet can't find your pokemon-colorscripts install, point `POKEGREET_COLORSCRIPTS_DIR` at the folder that contains `pokemon.json`.
 
